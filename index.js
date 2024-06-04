@@ -1,7 +1,7 @@
 const express = require('express');
 const jwt = require("jsonwebtoken");
 const cors = require('cors');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 2000;
@@ -28,6 +28,7 @@ async function run() {
     const booksCollection = client.db('bookshelf').collection('books');
     const newsCollection = client.db('bookshelf').collection('news');
     const eventsCollection = client.db('bookshelf').collection('events');
+    const membersCollection = client.db('bookshelf').collection('community_member');
 
 
 
@@ -36,6 +37,12 @@ async function run() {
       res.send(books);
     });
 
+    app.get('/book/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const book = await booksCollection.find(query).toArray();
+      res.send(book);
+    })
 
     app.get('/news', async (req, res) => {
       const news = await newsCollection.find().toArray();
@@ -46,6 +53,12 @@ async function run() {
     app.get('/events', async (req, res) => {
       const events = await eventsCollection.find().toArray();
       res.send(events);
+    });
+
+
+    app.get('/members', async (req, res) => {
+      const members = await membersCollection.find().toArray();
+      res.send(members);
     });
 
 
