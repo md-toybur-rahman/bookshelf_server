@@ -26,11 +26,30 @@ async function run() {
     await client.connect();
 
     const booksCollection = client.db('bookshelf').collection('books');
+    const newsCollection = client.db('bookshelf').collection('news');
+    const eventsCollection = client.db('bookshelf').collection('events');
+
+
 
     app.get('/books', async (req, res) => {
       const books = await booksCollection.find().toArray();
       res.send(books);
     });
+
+
+    app.get('/news', async (req, res) => {
+      const news = await newsCollection.find().toArray();
+      res.send(news);
+    });
+
+
+    app.get('/events', async (req, res) => {
+      const events = await eventsCollection.find().toArray();
+      res.send(events);
+    });
+
+
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
