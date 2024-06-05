@@ -21,7 +21,7 @@ const verifyToken = (req, res, next) => {
 
   jwt.verify(token, process.env.ACCESS_TOKEN, (error, decoded) => {
     if (error) {
-      return res.status(403).send({ status: false, message: 'Forbidden access' })
+      return res.status(403).send({ status: false, message: 'Forbidden access', error: error })
     }
     req.decoded = decoded
   })
@@ -60,13 +60,19 @@ async function run() {
     app.post('/jwt', (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN, {
-        expiresIn: '1h'
+        expiresIn: '7d'
       })
       res.send({ status: true, token })
     })
 
 
     app.get('/books', async (req, res) => {
+      const id = req.query.id;
+      if (id) {
+        const query = { _id: new ObjectId(id) }
+        const book = await booksCollection.findOne(query);
+        return res.send(book);
+      }
       const books = await booksCollection.find().toArray();
       res.send(books);
     });
@@ -76,6 +82,41 @@ async function run() {
       const query = { _id: new ObjectId(id) };
       const book = await booksCollection.find(query).toArray();
       res.send(book);
+    })
+
+    app.put('/books', verifyToken, async (req, res) => {
+      const id = req.query.id;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updatedBook = req.body;
+      const book = {
+        $set: {
+          book_name: updatedBook.book_name,
+          author_name: updatedBook.author_name,
+          publisher_name: updatedBook.publisher_name,
+          publication_date: updatedBook.publication_date,
+          language: updatedBook.language,
+          genre: updatedBook.genre,
+          number_of_pages: updatedBook.number_of_pages,
+          dimensions: { height: updatedBook.number_of_pages, width: updatedBook.width },
+          price: updatedBook.price,
+        }
+      }
+      const result = await booksCollection.updateOne(filter, book, options);
+      res.send(result);
+    })
+
+    app.post('/book', verifyToken, async (req, res) => {
+      const book = req.body;
+      const result = await booksCollection.insertOne(book);
+      res.send(result);
+    })
+
+    app.delete('/books', verifyToken, async (req, res) => {
+      const itemId = req.query.id;
+      const query = { _id: new ObjectId(itemId) };
+      const result = await booksCollection.deleteOne(query);
+      res.send(result)
     })
 
     app.get('/news', async (req, res) => {
