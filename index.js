@@ -10,6 +10,30 @@ const port = process.env.PORT || 2000;
 app.use(cors());
 app.use(express.json());
 
+// JWT Token Verify
+const verifyToken = (req, res, next) => {
+
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res.status(401).send({ status: false, message: 'You are unauthorized' })
+  }
+  const token = authorization.split(' ')[1];
+
+  jwt.verify(token, process.env.ACCESS_TOKEN, (error, decoded) => {
+    if (error) {
+      return res.status(403).send({ status: false, message: 'Forbidden access' })
+    }
+    req.decoded = decoded
+  })
+
+  next();
+}
+
+
+
+
+
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@bookshelfcluster.p3s31ub.mongodb.net/?ssl=true&retryWrites=true&w=majority&appName=bookshelfCluster`;
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -29,7 +53,17 @@ async function run() {
     const newsCollection = client.db('bookshelf').collection('news');
     const eventsCollection = client.db('bookshelf').collection('events');
     const membersCollection = client.db('bookshelf').collection('community_member');
+    const usersCollection = client.db('bookshelf').collection('users');
 
+
+    // JWT Token
+    app.post('/jwt', (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN, {
+        expiresIn: '1h'
+      })
+      res.send({ status: true, token })
+    })
 
 
     app.get('/books', async (req, res) => {
@@ -39,7 +73,7 @@ async function run() {
 
     app.get('/book/:id', async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)};
+      const query = { _id: new ObjectId(id) };
       const book = await booksCollection.find(query).toArray();
       res.send(book);
     })
@@ -60,6 +94,44 @@ async function run() {
       const members = await membersCollection.find().toArray();
       res.send(members);
     });
+
+    app.get('/users', async (req, res) => {
+      const email = req.query.email; // Correctly access the 'email' query parameter
+      if (!email) {
+        return res.status(400).send({ error: "Email query parameter is required" });
+      }
+
+      const query = { email: email };
+      // console.log(email);
+
+      const result = await usersCollection.find(query).toArray();
+      // console.log(result);
+
+      res.send(result);
+
+    })
+
+    app.post('/users', async (req, res) => {
+      const email = req.query.email;
+      const query = { email: email };
+      const userData = req.body;
+      const isUserExist = await usersCollection.findOne(query);
+      if (isUserExist) {
+        return res.send({
+          status: "success",
+          message: "Login Success",
+          email: email
+        });
+      }
+      else {
+        await usersCollection.insertOne(userData);
+        return res.send({
+          status: "success",
+          message: "Login Success",
+          email: email
+        })
+      }
+    })
 
 
 
