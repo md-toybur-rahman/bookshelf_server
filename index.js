@@ -2,32 +2,33 @@ const express = require('express');
 const jwt = require("jsonwebtoken");
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { jwtDecode } = require('jwt-decode');
 require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 2000;
-
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// JWT Token Verify
-const verifyToken = (req, res, next) => {
+// // JWT Token Verify
+// const verifyToken = (req, res, next) => {
 
-  const authorization = req.headers.authorization;
-  if (!authorization) {
-    return res.status(401).send({ status: false, message: 'You are unauthorized' })
-  }
-  const token = authorization.split(' ')[1];
+//   const authorization = req.headers.authorization;
+//   if (!authorization) {
+//     return res.status(401).send({ status: false, message: 'You are unauthorized' })
+//   }
+//   const token = authorization.split(' ')[1];
 
-  jwt.verify(token, process.env.ACCESS_TOKEN, (error, decoded) => {
-    if (error) {
-      return res.status(403).send({ status: false, message: 'Forbidden access', error: error })
-    }
-    req.decoded = decoded
-  })
-
-  next();
-}
+//   jwt.verify(token, process.env.ACCESS_TOKEN, (error, decoded) => {
+//     console.log(decoded);
+//     console.log(error)
+//     if (error) {
+//       return res.status(403).send({ status: false, message: `Forbidden access`, error: error })
+//     }
+//     req.decoded = decoded
+//     next();
+//   })
+// }
 
 
 
@@ -54,25 +55,24 @@ async function run() {
     const eventsCollection = client.db('bookshelf').collection('events');
     const membersCollection = client.db('bookshelf').collection('community_member');
     const usersCollection = client.db('bookshelf').collection('users');
+    const cartCollection = client.db('bookshelf').collection('cart');
 
+
+    // app.get('*', (req, res) => {
+    //   res.sendFile(path.join(__dirname + '/client/build/index.html'));
+    // });
 
     // JWT Token
-    app.post('/jwt', (req, res) => {
-      const user = req.body;
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN, {
-        expiresIn: '7d'
-      })
-      res.send({ status: true, token })
-    })
+    // app.post('/jwt', (req, res) => {
+    //   const user = req.body;
+    //   const token = jwt.sign(user, process.env.ACCESS_TOKEN, {
+    //     expiresIn: '1h'
+    //   })
+    //   res.send({ status: true, token })
+    // })
 
-
+    // Books Operations
     app.get('/books', async (req, res) => {
-      const id = req.query.id;
-      if (id) {
-        const query = { _id: new ObjectId(id) }
-        const book = await booksCollection.findOne(query);
-        return res.send(book);
-      }
       const books = await booksCollection.find().toArray();
       res.send(books);
     });
@@ -84,8 +84,8 @@ async function run() {
       res.send(book);
     })
 
-    app.put('/books', verifyToken, async (req, res) => {
-      const id = req.query.id;
+    app.put('/books/:id', async (req, res) => {
+      const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const options = { upsert: true };
       const updatedBook = req.body;
@@ -106,38 +106,58 @@ async function run() {
       res.send(result);
     })
 
-    app.post('/book', verifyToken, async (req, res) => {
+
+    app.post('/book', async (req, res) => {
       const book = req.body;
       const result = await booksCollection.insertOne(book);
       res.send(result);
     })
 
-    app.delete('/books', verifyToken, async (req, res) => {
-      const itemId = req.query.id;
+    app.delete('/books/:id', async (req, res) => {
+      const itemId = req.params.id;
       const query = { _id: new ObjectId(itemId) };
       const result = await booksCollection.deleteOne(query);
       res.send(result)
     })
 
+    // Cart Operations
+    app.post('/cart', async (req, res) => {
+      const cartItem = req.body;
+      const email = cartItem.email;
+      const book = cartItem.book;
+      console.log('Email:', email);
+
+      const isUser = await cartCollection.find({ email }).toArray();
+      if (!isUser.length) {
+        const result = await cartCollection.insertOne({ email, book: [book] });
+        res.send(result);
+      } else {
+        console.log('User found:', isUser);
+        res.send(isUser);
+      }
+    });
+
+    // News Operations
     app.get('/news', async (req, res) => {
       const news = await newsCollection.find().toArray();
       res.send(news);
     });
 
-
+    // Event Operations
     app.get('/events', async (req, res) => {
       const events = await eventsCollection.find().toArray();
       res.send(events);
     });
 
-
+    // Member Operations
     app.get('/members', async (req, res) => {
       const members = await membersCollection.find().toArray();
       res.send(members);
     });
 
-    app.get('/users', async (req, res) => {
-      const email = req.query.email; // Correctly access the 'email' query parameter
+    // Users Operations
+    app.get('/users/:email', async (req, res) => {
+      const email = req.params.email; // Correctly access the 'email' query parameter
       if (!email) {
         return res.status(400).send({ error: "Email query parameter is required" });
       }
@@ -153,29 +173,11 @@ async function run() {
     })
 
     app.post('/users', async (req, res) => {
-      const email = req.query.email;
-      const query = { email: email };
       const userData = req.body;
-      const isUserExist = await usersCollection.findOne(query);
-      if (isUserExist) {
-        return res.send({
-          status: "success",
-          message: "Login Success",
-          email: email
-        });
-      }
-      else {
-        await usersCollection.insertOne(userData);
-        return res.send({
-          status: "success",
-          message: "Login Success",
-          email: email
-        })
-      }
+      const result = await usersCollection.insertOne(userData);
+      return res.send(result)
+
     })
-
-
-
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
