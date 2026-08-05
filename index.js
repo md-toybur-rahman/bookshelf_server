@@ -3,6 +3,12 @@ const jwt = require("jsonwebtoken");
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const { jwtDecode } = require('jwt-decode');
+const cloudinary = require('cloudinary').v2;
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 2000;
@@ -56,6 +62,7 @@ async function run() {
     const membersCollection = client.db('bookshelf').collection('community_member');
     const usersCollection = client.db('bookshelf').collection('users');
     const cartCollection = client.db('bookshelf').collection('cart');
+    const usersResponsesCollection = client.db('bookshelf').collection('users_responses');
 
 
     // app.get('*', (req, res) => {
@@ -71,6 +78,21 @@ async function run() {
     //   res.send({ status: true, token })
     // })
 
+    app.delete('/delete-image', async (req, res) => {
+      const { public_id } = req.body;
+
+      try {
+        const result = await cloudinary.uploader.destroy(public_id);
+        if (result.result === 'ok') {
+          res.status(200).send({ message: 'Image deleted successfully' });
+        } else {
+          res.status(404).send({ message: 'Image not found' });
+        }
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to delete image', error });
+      }
+    });
+
     // Books Operations
     app.get('/books', async (req, res) => {
       const books = await booksCollection.find().toArray();
@@ -84,27 +106,50 @@ async function run() {
       res.send(book);
     })
 
-    app.put('/books/:id', async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const options = { upsert: true };
-      const updatedBook = req.body;
-      const book = {
-        $set: {
-          book_name: updatedBook.book_name,
-          author_name: updatedBook.author_name,
-          publisher_name: updatedBook.publisher_name,
-          publication_date: updatedBook.publication_date,
-          language: updatedBook.language,
-          genre: updatedBook.genre,
-          number_of_pages: updatedBook.number_of_pages,
-          dimensions: { height: updatedBook.number_of_pages, width: updatedBook.width },
-          price: updatedBook.price,
-        }
+    app.put("/books/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const book = req.body;
+        const filter = {
+          _id: new ObjectId(id),
+        };
+
+        const updateDoc = {
+          $set: {
+            book_name: book.book_name,
+            author_name: book.author_name,
+            publisher_name: book.publisher_name,
+            publication_date: book.publication_date,
+            language: book.language,
+            genre: book.genre,
+            number_of_pages: book.number_of_pages,
+            dimensions: {
+              height: book.dimensions.height,
+              width: book.dimensions.width,
+              depth: book.dimensions.depth,
+            },
+            price: book.price,
+            stock: book.stock,
+            available: book.available,
+            description: book.description,
+            keywords: book.keywords,
+            cover_image: book.cover_image,
+            public_id: book.public_id,
+          },
+        };
+
+        const result = await booksCollection.updateOne(
+          filter,
+          updateDoc
+        );
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({
+          success: false,
+          message: error.message,
+        });
       }
-      const result = await booksCollection.updateOne(filter, book, options);
-      res.send(result);
-    })
+    });
 
 
     app.post('/book', async (req, res) => {
@@ -120,21 +165,177 @@ async function run() {
       res.send(result)
     })
 
-    // Cart Operations
-    app.post('/cart', async (req, res) => {
-      const cartItem = req.body;
-      const email = cartItem.email;
-      const book = cartItem.book;
-      console.log('Email:', email);
+    app.post("/cart", async (req, res) => {
+      try {
 
-      const isUser = await cartCollection.find({ email }).toArray();
-      if (!isUser.length) {
-        const result = await cartCollection.insertOne({ email, book: [book] });
-        res.send(result);
-      } else {
-        console.log('User found:', isUser);
-        res.send(isUser);
+        const { email, book } = req.body;
+
+        if (!email || !book) {
+          return res.status(400).send({
+            success: false,
+            message: "Email and Book ID are required."
+          });
+        }
+
+        const userCart = await cartCollection.findOne({ email });
+
+        // First Cart
+        if (!userCart) {
+
+          const result = await cartCollection.insertOne({
+            email,
+            book: [book],
+            createdAt: new Date()
+          });
+
+          return res.send({
+            success: true,
+            insertedId: result.insertedId,
+            message: "Book added to cart."
+          });
+
+        }
+
+        // Make sure book array exists
+        const books = Array.isArray(userCart.book)
+          ? userCart.book
+          : [];
+
+        // Duplicate Check
+        if (books.includes(book)) {
+
+          return res.send({
+            success: false,
+            alreadyExists: true,
+            message: "Book already exists in cart."
+          });
+
+        }
+
+        // Add New Book
+        await cartCollection.updateOne(
+          { email },
+          {
+            $push: {
+              book: book
+            }
+          }
+        );
+
+        return res.send({
+          success: true,
+          message: "Book added successfully."
+        });
+
       }
+      catch (error) {
+
+        console.log(error);
+
+        return res.status(500).send({
+          success: false,
+          message: "Internal Server Error"
+        });
+
+      }
+    });
+
+    app.get("/cart/:email", async (req, res) => {
+
+      try {
+
+        const { email } = req.params;
+
+        const cart = await cartCollection.findOne({ email });
+
+        if (!cart) {
+
+          return res.send([]);
+
+        }
+
+        const ids = cart.book.map(id => new ObjectId(id));
+
+        const books = await booksCollection.find({
+
+          _id: { $in: ids }
+
+        }).toArray();
+
+        const finalBooks = books.map(book => ({
+
+          ...book,
+
+          quantity: 1
+
+        }));
+
+        res.send(finalBooks);
+
+      }
+
+      catch (err) {
+
+        console.log(err);
+
+        res.status(500).send({
+
+          success: false,
+
+          message: err.message
+
+        });
+
+      }
+
+    });
+
+    app.delete("/cart/:email/:bookId", async (req, res) => {
+
+      try {
+
+        const { email, bookId } = req.params;
+
+        await cartCollection.updateOne(
+
+          { email },
+
+          {
+
+            $pull: {
+
+              book: bookId
+
+            }
+
+          }
+
+        );
+
+        res.send({
+
+          success: true,
+
+          message: "Removed Successfully"
+
+        });
+
+      }
+
+      catch (err) {
+
+        console.log(err);
+
+        res.status(500).send({
+
+          success: false,
+
+          message: err.message
+
+        });
+
+      }
+
     });
 
     // News Operations
@@ -156,6 +357,11 @@ async function run() {
     });
 
     // Users Operations
+    app.get('/users', async (req, res) => {
+      const users = await usersCollection.find().toArray();
+      res.send(users);
+    });
+
     app.get('/users/:email', async (req, res) => {
       const email = req.params.email; // Correctly access the 'email' query parameter
       if (!email) {
@@ -178,6 +384,305 @@ async function run() {
       return res.send(result)
 
     })
+
+    app.put("/users/:email", async (req, res) => {
+
+      try {
+
+        const email = req.params.email;
+
+        const {
+          first_name,
+          last_name,
+          phone_number,
+          address,
+          gender,
+          image,
+        } = req.body;
+
+        const filter = { email };
+
+        const updateDoc = {
+
+          $set: {
+
+            first_name,
+            last_name,
+            phone_number,
+            address,
+            gender,
+            image,
+
+          },
+
+        };
+
+        const result = await usersCollection.updateOne(
+          filter,
+          updateDoc
+        );
+
+        if (result.matchedCount === 0) {
+
+          return res.status(404).send({
+
+            success: false,
+            message: "User not found",
+
+          });
+
+        }
+
+        return res.send({
+
+          success: true,
+          message: "Profile updated successfully",
+
+        });
+
+      } catch (err) {
+
+        console.log(err);
+
+        return res.status(500).send({
+
+          success: false,
+          message: "Internal Server Error",
+
+        });
+
+      }
+
+    });
+
+    app.put("/users/profile_image/:email", async (req, res) => {
+
+      try {
+
+        const email = req.params.email;
+        const { image } = req.body;
+
+        if (!email || !image) {
+
+          return res.status(400).send({
+            success: false,
+            message: "Email and Image URL are required.",
+          });
+
+        }
+
+        const result = await usersCollection.updateOne(
+
+          {
+            email: email,
+          },
+
+          {
+            $set: {
+              image: image,
+            },
+          }
+
+        );
+
+        if (result.matchedCount === 0) {
+
+          return res.status(404).send({
+
+            success: false,
+
+            message: "User not found.",
+
+          });
+
+        }
+
+        res.send({
+
+          success: true,
+
+          message: "Profile image updated successfully.",
+
+          modifiedCount: result.modifiedCount,
+
+        });
+
+      }
+
+      catch (error) {
+
+        console.error(error);
+
+        res.status(500).send({
+
+          success: false,
+
+          message: "Internal Server Error",
+
+        });
+
+      }
+
+    });
+
+
+    app.patch("/users/role/:email", async (req, res) => {
+
+      try {
+
+        const email = req.params.email;
+        const { type } = req.body;
+
+        if (!email || !type) {
+          return res.status(400).send({
+            success: false,
+            message: "Email and role are required."
+          });
+        }
+
+        const filter = {
+          email: email
+        };
+
+        const updateDoc = {
+          $set: {
+            type: type
+          }
+        };
+
+        const result = await usersCollection.updateOne(
+          filter,
+          updateDoc
+        );
+
+        if (result.matchedCount === 0) {
+
+          return res.status(404).send({
+            success: false,
+            message: "User not found."
+          });
+
+        }
+
+        res.send({
+          success: true,
+          message: "Role updated successfully.",
+          modifiedCount: result.modifiedCount
+        });
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          success: false,
+          message: "Internal Server Error"
+        });
+
+      }
+
+    });
+
+    app.put("/community/member", async (req, res) => {
+
+      const member = req.body;
+
+      const filter = {
+        name: member.name,
+      };
+
+      const updateDoc = {
+
+        $set: {
+
+          role: member.role,
+          description: member.description,
+          image: member.image,
+
+        },
+
+      };
+
+      const options = {
+
+        upsert: true,
+
+      };
+
+      const result = await communityCollection.updateOne(
+
+        filter,
+        updateDoc,
+        options
+
+      );
+
+      res.send(result);
+
+    });
+
+    app.post("/users_responses", async (req, res) => {
+
+      try {
+
+        const { name, email, subject, message, createdAt } = req.body;
+
+        if (!name || !email || !subject || !message) {
+
+          return res.status(400).send({
+            success: false,
+            message: "All fields are required.",
+          });
+
+        }
+        console.log(req.body)
+        const result = await usersResponsesCollection.insertOne({
+          name,
+          email,
+          subject,
+          message,
+          createdAt
+        });
+
+        res.send({
+          success: true,
+          insertedId: result.insertedId,
+        });
+
+      } catch (error) {
+
+        console.error(error);
+
+        res.status(500).send({
+          success: false,
+          message: "Internal Server Error",
+        });
+
+      }
+
+    });
+
+    app.patch("/books/review/:id", async (req, res) => {
+      const id = req.params.id;
+      const review = req.body;
+
+      const result = await booksCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $push: {
+            user_reviews: {
+              user: review.user,
+              rating: review.rating,
+              comment: review.comment,
+            },
+          },
+        }
+      );
+
+      res.send(result);
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
