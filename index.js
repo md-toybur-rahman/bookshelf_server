@@ -447,6 +447,38 @@ async function run() {
       }
     });
 
+
+    app.delete("/events/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const result = await eventsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({
+            success: false,
+            message: "Event not found",
+          });
+        }
+
+        res.status(200).send({
+          success: true,
+          message: "Event deleted successfully",
+        });
+
+      } catch (error) {
+        console.error("Delete event error:", error);
+
+        res.status(500).send({
+          success: false,
+          message: "Failed to delete event",
+          error: error.message,
+        });
+      }
+    });
+
     /* ========================= EVENT JOIN ========================= */
 
     app.get("/event/join", async (req, res) => {
