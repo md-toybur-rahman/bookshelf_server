@@ -218,6 +218,36 @@ async function run() {
       }
     });
 
+    app.patch("/books/review/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const reviewData = req.body;
+
+        const result = await booksCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $push: {
+              reviews: {
+                ...reviewData,
+                created_at: new Date(),
+              },
+            },
+          }
+        );
+
+        res.send(result);
+
+      } catch (error) {
+        console.error("Review error:", error);
+
+        res.status(500).send({
+          success: false,
+          message: "Failed to add review",
+          error: error.message,
+        });
+      }
+    });
+
     app.post("/cart", async (req, res) => {
       try {
         const { email, book } = req.body;
