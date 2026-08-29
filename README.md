@@ -80,6 +80,7 @@ The backend provides endpoints for:
 * Conversations
 * Messages
 * Notifications
+* Change Role
 
 ## Security
 
